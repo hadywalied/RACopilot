@@ -17,5 +17,8 @@ dependencies = [
     "rank-bm25>=0.2.2",
 ]
 
+[tool.setuptools]
+packages = ["agent"]
+
 [project.optional-dependencies]
 dev = ["pytest"]
