@@ -8,11 +8,20 @@ logger = logging.getLogger(__name__)
 
 class SqliteTool:
     """
-    A tool class for interacting with the SQLite database.
+    A robust tool for interacting with a SQLite database.
+
+    This class provides methods to get table schemas and execute SQL queries,
+    with proper error handling and context management. It is designed to be
+    used as a context manager to ensure database connections are handled correctly.
+
+    Usage:
+        with SqliteTool() as db_tool:
+            schema = db_tool.get_table_schema('orders')
+            results = db_tool.execute_sql('SELECT * FROM orders LIMIT 5;')
     """
 
     def __init__(self, db_path: Optional[Path] = None, db_name: str = "northwind.sqlite"):
-        # Construct a robust path to the database relative to the project root
+        # Construct a robust path to the database
         if db_path:
             self._db_path = db_path
         else:
@@ -67,8 +76,7 @@ class SqliteTool:
 
     def get_table_schema(self, table_name: str) -> str:
         """
-        Returns the 'CREATE TABLE' statement for a given table.
-        This is highly useful for providing context to an LLM.
+        Returns the 'CREATE TABLE' statement for a given table, cleaned for the LLM.
         """
         if table_name not in self._allowed_tables:
             raise ValueError(f"Access to table '{table_name}' is not allowed.")
@@ -79,10 +87,11 @@ class SqliteTool:
             with self._conn:
                 cursor = self._conn.cursor()
                 # Query the sqlite_master table for the original CREATE statement
-                cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND tbl_name=?;", (table_name,))
+                cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND tbl_name=?", (table_name,))
                 result = cursor.fetchone()
                 if result:
-                    return result[0]
+                    # Clean the schema string by removing brackets for the LLM
+                    return result[0].replace('[', '').replace(']', '')
                 else:
                     raise ValueError(f"Table '{table_name}' not found in the database schema.")
         except sqlite3.Error as e:

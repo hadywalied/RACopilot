@@ -1,63 +1,114 @@
+import click
+import json
 from agent.graph_hybrid import create_graph, AgentState
 import logging
+import dspy
+from pathlib import Path
 
-# Set up basic logging to see outputs from the agent's tools
-logging.basicConfig(level=logging.INFO)
+# Set up basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def main():
+@click.command()
+@click.option('--batch', type=click.Path(exists=True), required=True, help='Path to input JSONL file.')
+@click.option('--out', type=click.Path(), required=True, help='Path to output JSONL file.')
+def main(batch, out):
     """
-    Main function to create and run the agent graph with sample inputs.
-    This serves as a basic integration test to see the flow of the agent.
+    Run the Retail Analytics Copilot on a batch of questions.
     """
+    # --- Configure DSPy Language Model ---
+    try:
+        from dotenv import load_dotenv
+        import os
+        load_dotenv()
+        
+        api_base = os.getenv("LLM_API_BASE", "http://127.0.0.1:1234/v1")
+        api_key = os.getenv("LLM_API_KEY", "lm-studio")
+        model_name = os.getenv("LLM_MODEL_NAME", "devstral-small-2507")
+        
+        # User's configured Ollama LM
+        ollama_model = dspy.LM(
+            model_name,
+            api_base=api_base,
+            api_key=api_key,
+            model_type='text')
+        dspy.configure(lm=ollama_model)
+        logging.info(f"DSPy configured with model: {model_name}")
+    except Exception as e:
+        logging.error(f"Could not configure DSPy LM: {e}")
+        return
+
+    # Create the agent graph
     app = create_graph()
+    
+    input_path = Path(batch)
+    output_path = Path(out)
+    
+    print(f"DEBUG: Input path: {input_path}")
+    print(f"DEBUG: Output path: {output_path}")
+    
+    logging.info(f"Processing {input_path} -> {output_path}")
+    
+    results = []
+    
+    if not input_path.exists():
+        print(f"ERROR: Input file {input_path} does not exist.")
+        return
 
-    # --- Test Case 1: RAG Route ---
-    print("\n" + "="*30)
-    print("--- RUNNING TEST 1: RAG ---")
-    print("="*30)
-    question_rag = "what is the return policy for beverages?"
-    inputs_rag = {
-        "question": question_rag,
-        "format_hint": "A simple string answer.",
-        "errors": [],
-        "repair_count": 0,
-    }
-    # .stream() is also useful for seeing the flow live
-    for s in app.stream(inputs_rag):
-        print(s)
-        print("----")
+    try:
+        with open(input_path, 'r', encoding='utf-8') as f_in, \
+             open(output_path, 'w', encoding='utf-8') as f_out:
+            
+            print("DEBUG: Files opened successfully.")
+            
+            for line in f_in:
+                print(f"DEBUG: Reading line: {line[:50]}...")
+                if not line.strip():
+                    continue
+                    
+                data = json.loads(line)
+                question = data.get("question")
+                format_hint = data.get("format_hint", "A string answer.")
+                
+                logging.info(f"Processing question: {question}")
+                
+                inputs = {
+                    "question": question,
+                    "format_hint": format_hint,
+                    "errors": [],
+                    "repair_count": 0,
+                }
+                
+                try:
+                    # Run the agent
+                    # We use invoke instead of stream for batch processing to get the final state
+                    final_state = app.invoke(inputs)
+                    
+                    output_data = {
+                        "question": question,
+                        "final_answer": final_state.get("final_answer"),
+                        "citations": final_state.get("citations"),
+                        "sql_query": final_state.get("sql_query"),
+                        "route": final_state.get("route")
+                    }
+                    
+                    # Write result immediately
+                    f_out.write(json.dumps(output_data) + "\n")
+                    f_out.flush()
+                    
+                except Exception as e:
+                    logging.error(f"Error processing question '{question}': {e}")
+                    error_data = {
+                        "question": question,
+                        "error": str(e)
+                    }
+                    f_out.write(json.dumps(error_data) + "\n")
+                    f_out.flush()
 
-    # --- Test Case 2: SQL Route ---
-    print("\n" + "="*30)
-    print("--- RUNNING TEST 2: SQL ---")
-    print("="*30)
-    question_sql = "what are the top 3 selling products?"
-    inputs_sql = {
-        "question": question_sql,
-        "format_hint": "A list of product names.",
-        "errors": [],
-        "repair_count": 0,
-    }
-    for s in app.stream(inputs_sql):
-        print(s)
-        print("----")
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}")
+        logging.error(f"Critical error during batch processing: {e}")
 
-
-    # --- Test Case 3: Hybrid Route ---
-    print("\n" + "="*30)
-    print("--- RUNNING TEST 3: HYBRID ---")
-    print("="*30)
-    question_hybrid = "what was the average order value during the 'Winter Classics 1997' promotion?"
-    inputs_hybrid = {
-        "question": question_hybrid,
-        "format_hint": "A float value.",
-        "errors": [],
-        "repair_count": 0,
-    }
-    for s in app.stream(inputs_hybrid):
-        print(s)
-        print("----")
-
+    logging.info("Batch processing complete.")
 
 if __name__ == "__main__":
     main()

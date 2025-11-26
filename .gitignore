@@ -17,3 +17,5 @@ wheels/
 uv.lock
 
 .idea
+
+.env

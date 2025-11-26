@@ -1,6 +1,6 @@
 import dspy
 import json
-from dspy.teleprompt import BootstrapFewShot
+from dspy.teleprompt import MIPROv2 # Changed import
 from agent.dspy_signatures import SQLGenerator
 from agent.tools.sqlite_tool import SqliteTool
 import logging
@@ -38,9 +38,16 @@ def execution_accuracy(example, pred, trace=None):
 
     try:
         with SqliteTool() as db:
-            db.execute_sql(predicted_query)
-        logging.info(f"SUCCESS: Query executed successfully.\n  -> Query: {predicted_query}")
-        return True  # The query executed without errors
+            results = db.execute_sql(predicted_query)
+            
+        # Check if results are empty
+        if not results or (isinstance(results, list) and len(results) == 0):
+            logging.warning(f"PARTIAL SUCCESS: Query executed but returned no data.\n  -> Query: {predicted_query}")
+            # We treat this as a failure for optimization purposes because we want the model to learn queries that actually retrieve data.
+            return False
+            
+        logging.info(f"SUCCESS: Query executed and returned {len(results)} rows.\n  -> Query: {predicted_query}")
+        return True
     except Exception as e:
         logging.error(f"FAILED: Query execution failed: {e}\n  -> Query: {predicted_query}")
         return False # The query failed
@@ -52,15 +59,22 @@ def main():
     """
     # --- 1. Configure DSPy ---
     try:
-        # User's configured Ollama LM
-        ollama_model = dspy.LM(
-            "devstral-small-2507",
-            # "phi3.5:3.8b-mini-instruct-q4_K_M",
-            api_base="http://127.0.0.1:1234/v1",
-            api_key="lm-studio",
+        from dotenv import load_dotenv
+        import os
+        load_dotenv()
+        
+        api_base = os.getenv("LLM_API_BASE", "http://127.0.0.1:1234/v1")
+        api_key = os.getenv("LLM_API_KEY", "lm-studio")
+        model_name = os.getenv("LLM_MODEL_NAME", "devstral-small-2507")
+
+        # Configure for local LM Studio model
+        lm_studio_model = dspy.LM(
+            model_name,
+            api_base=api_base,
+            api_key=api_key,
             model_type='text')
-        dspy.configure(lm=ollama_model)
-        logging.info("DSPy configured with phi3.5 Ollama model.")
+        dspy.configure(lm=lm_studio_model)
+        logging.info(f"DSPy configured with model: {model_name}")
     except Exception as e:
         logging.error(f"Could not configure DSPy. Please ensure your API keys or model setup is correct. Error: {e}")
         logging.warning("Proceeding without a configured LLM. The script will fail if an LLM call is made.")
@@ -94,12 +108,12 @@ def main():
     logging.info(f"Augmented training set with {len(manual_demos)} manual demos. Total examples: {len(trainset)}")
 
     # --- 3. Set up the Optimizer (Teleprompter) ---
-    # Increase max_bootstrapped_demos to give the LLM more chances to find good examples.
-    # Set max_rounds to 1 for now to just try and get initial traces.
-    teleprompter = BootstrapFewShot(metric=execution_accuracy, max_bootstrapped_demos=8, max_rounds=2)
+    # Switched to BootstrapFewShot for better stability with smaller models.
+    from dspy.teleprompt import BootstrapFewShot
+    teleprompter = BootstrapFewShot(metric=execution_accuracy)
     
     # --- 4. Run the Compilation ---
-    logging.info("Starting DSPy compilation... This may take a few minutes depending on your model and data.")
+    logging.info("Starting DSPy compilation with BootstrapFewShot...")
     try:
         optimized_sql_generator = teleprompter.compile(SQLGenerator(), trainset=trainset)
     except Exception as e:
@@ -107,7 +121,7 @@ def main():
         return
         
     # --- 5. Save the Optimized Module ---
-    output_path = "sql_generator_optimized.json"
+    output_path = "scripts/sql_generator_optimized.json"
     optimized_sql_generator.save(output_path)
     logging.info(f"Successfully compiled and saved the optimized module to {output_path}")
 
