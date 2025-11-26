@@ -19,10 +19,13 @@ class Planner(dspy.Signature):
 
 
 class NL2SQL(dspy.Signature):
-    """Convert natural language to SQL"""
+    """Convert natural language to *correct and runnable* SQLite query.
+- IMPORTANT: ALWAYS use double quotes around table and column names that contain spaces (e.g., "Order Details").
+- Use 'AS T1', 'AS T2', etc. for table aliases.
+- For date comparisons, prefer STRFTIME('%Y-%m-%d', date_column) for full dates, or STRFTIME('%Y', date_column) for years.
+- Ensure the query is valid SQLite syntax. Avoid non-standard SQL keywords (like ILIKE if not supported)."""
 
     question = dspy.InputField()
-    constraints = dspy.InputField(desc="Summary of constraints to apply to the query")
     schema = dspy.InputField(desc="Database schema")
     sql_query = dspy.OutputField(desc="Valid SQLite query")
 
@@ -62,10 +65,12 @@ class PlannerModule(dspy.Module):
 class SQLGenerator(dspy.Module):
     def __init__(self):
         super().__init__()
+        # Changed to dspy.Predict for simpler output expected from LLM
         self.generate = dspy.ChainOfThought(NL2SQL)
+        # self.generate = dspy.Predict(NL2SQL)
 
-    def forward(self, question, constraints, schema):
-        return self.generate(question=question, constraints=constraints, schema=schema)
+    def forward(self, question, schema): # Removed constraints
+        return self.generate(question=question, schema=schema) # Removed constraints
 
 
 class Synthesizer(dspy.Module):
