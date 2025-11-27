@@ -7,7 +7,7 @@ from langgraph.graph import StateGraph, END
 from agent.dspy_signatures import PlannerModule, RouterModule, SQLGenerator, Synthesizer
 from agent.tools.sqlite_tool import SqliteTool
 from agent.rag.retrieval import BM25Retriever
-import os # Import os to construct path to optimized module
+import re
 
 
 # Define the state for our agent
@@ -126,7 +126,7 @@ def _load_sql_generator():
                 print(f"Failed to load optimized module: {e}. Using fresh module.")
                 _sql_generator_module = SQLGenerator()
         else:
-            print(f"Optimized module not found. Instantiating fresh SQLGenerator.")
+            print("Optimized module not found. Instantiating fresh SQLGenerator.")
             _sql_generator_module = SQLGenerator()
     return _sql_generator_module
 
@@ -152,20 +152,30 @@ def sql_gen_node(state: AgentState) -> AgentState:
         
         if state['sql_query']:
             # Clean the SQL query
+            # Clean the SQL query
             clean_query = state['sql_query'].strip()
-            # Remove markdown code blocks
-            if "```sql" in clean_query:
-                clean_query = clean_query.split("```sql")[1].split("```")[0]
-            elif "```" in clean_query:
-                clean_query = clean_query.split("```")[1].split("```")[0]
             
-            # Remove leading garbage like ']' or 'SQL:'
-            # Note: lstrip takes a set of characters, not a prefix string.
-            # We use replace or regex to safely remove the prefix.
-            if clean_query.upper().startswith("SQL:"):
-                clean_query = clean_query[4:].strip()
+            # 1. Remove markdown code blocks
+            if "```" in clean_query:
+                # Find the content inside the first code block
+                try:
+                    clean_query = clean_query.split("```")[1]
+                    if clean_query.startswith("sql"):
+                        clean_query = clean_query[3:]
+                except IndexError:
+                    pass # Fallback to raw string if split fails
             
-            clean_query = clean_query.lstrip("] \n\t")
+            # 2. Regex to find the SELECT statement (Case-insensitive, DOTALL)
+            # This handles "SQL: SELECT...", "Here is the query: SELECT...", etc.
+            match = re.search(r'(SELECT\s+.*)', clean_query, re.IGNORECASE | re.DOTALL)
+            if match:
+                clean_query = match.group(1)
+            
+            # 3. Remove any remaining leading/trailing whitespace or garbage
+            clean_query = clean_query.strip().lstrip("] \n\t")
+            
+            # 4. Ensure it ends with a semicolon (and remove multiple semicolons)
+            clean_query = clean_query.rstrip(";") + ";"
             
             state['sql_query'] = clean_query
             print(f"  -> Generated SQL: {state['sql_query']}")
@@ -322,44 +332,6 @@ def needs_repair(state: AgentState) -> Literal["repair", "__end__"]:
         return "__end__"
 
 
-def create_graph():
-    """Creates the LangGraph agent."""
-    workflow = StateGraph(AgentState)
-
-    # Nodes
-    workflow.add_node("router", route_node)
-    workflow.add_node("retriever", retrieve_node)
-    workflow.add_node("planner", plan_node)
-    workflow.add_node("sql_generator", sql_gen_node)
-    workflow.add_node("executor", execute_sql_node)
-    workflow.add_node("synthesizer", synthesize_node)
-    workflow.add_node("validator", validate_node)
-    workflow.add_node("repair", repair_node)
-
-    # Edges
-    workflow.set_entry_point("router")
-    
-    workflow.add_conditional_edges(
-        "router",
-        route_decision,
-        {"retriever": "retriever", "sql_generator": "sql_generator"},
-    )
-    workflow.add_edge("retriever", "planner")
-    
-    workflow.add_conditional_edges(
-        "planner",
-        after_planner_decision,
-        {"sql_generator": "sql_generator", "synthesizer": "synthesizer"},
-    )
-    
-    workflow.add_edge("sql_generator", "executor")
-    workflow.add_edge("executor", "synthesizer")
-    workflow.add_edge("synthesizer", "validator")
-    
-    workflow.add_conditional_edges(
-        "validator", needs_repair, {"repair": "repair", "__end__": END}
-    )
-    
 def repair_routing(state: AgentState) -> Literal["sql_generator", "synthesizer"]:
     """Decides where to go after repair."""
     feedback = state.get("feedback", "").lower()
