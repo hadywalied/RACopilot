@@ -80,7 +80,7 @@ We optimized the **SQL Generator** module using DSPy's `BootstrapFewShot` optimi
 4.  **Run the Agent**:
     Use `uv run` to execute the script within the managed environment.
     ```bash
-    uv run python run_agent_hybrid.py --batch sample_questions_hybrid_eval.jsonl --out outputs.jsonl
+    uv run python run_agent_hybrid.py --batch sample_questions_hybrid_eval.jsonl --out outputs_hybrid.jsonl
     ```
 
 ### Option 2: Using Standard pip
@@ -104,5 +104,5 @@ If you prefer standard pip, we provide a `requirements.txt`.
 
 4.  **Run the Agent**:
     ```bash
-    python run_agent_hybrid.py --batch sample_questions_hybrid_eval.jsonl --out outputs.jsonl
+    python run_agent_hybrid.py --batch sample_questions_hybrid_eval.jsonl --out outputs_hybrid.jsonl
     ```
