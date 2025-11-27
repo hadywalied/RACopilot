@@ -48,6 +48,7 @@ We optimized the **SQL Generator** module using DSPy's `BootstrapFewShot` optimi
 *   **Local LLM Limitations**: We assume a small local model (e.g., Phi-3.5/Devstral). To handle its limitations, we added robust error handling and output cleaning (stripping markdown).
 *   **Cost Approximation**: For gross margin calculations, we assume `CostOfGoods` is 70% of `UnitPrice` if not explicitly available in the database.
 *   **Simplified RAG**: We use BM25 for retrieval instead of vector embeddings to keep the setup lightweight and purely local.
+*   **Dataset Dates**: The Northwind database file uses dates from 2016-2017 (updated from the original 1996-1997 dataset).
 
 ## Setup
 

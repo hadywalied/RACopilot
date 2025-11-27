@@ -54,7 +54,7 @@ def test_db_path(tmp_path):
         );
     """)
     cursor.execute("""
-        INSERT INTO Orders (OrderID, CustomerID, OrderDate) VALUES (1, 'ALFKI', '1997-01-01');
+        INSERT INTO Orders (OrderID, CustomerID, OrderDate) VALUES (1, 'ALFKI', '2017-01-01');
     """)
     cursor.execute("""
         INSERT INTO "Order Details" (OrderID, ProductID, UnitPrice, Quantity, Discount) VALUES (1, 1, 10.0, 1, 0.0);

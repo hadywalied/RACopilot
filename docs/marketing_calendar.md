@@ -1,9 +1,9 @@
-# Northwind Marketing Calendar (1997)
+# Northwind Marketing Calendar (2017)
 
-## Summer Beverages 1997
-- Dates: 1997-06-01 to 1997-06-30
+## Summer Beverages 2017
+- Dates: 2017-06-01 to 2017-06-30
 - Notes: Focus on Beverages and Condiments.
 
-## Winter Classics 1997
-- Dates: 1997-12-01 to 1997-12-31
+## Winter Classics 2017
+- Dates: 2017-12-01 to 2017-12-31
 - Notes: Push Dairy Products and Confections for holiday gifting.

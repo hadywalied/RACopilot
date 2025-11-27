@@ -37,7 +37,22 @@ class NL2SQL(dspy.Signature):
     2. Start the query immediately with 'SELECT'.
     3. Use the provided schema.
     4. Use double quotes "Table Name" for tables/columns with spaces.
-    5. For dates, use SQLite's STRFTIME format.
+    5. For dates, use SQLite's STRFTIME format with full dates format '%Y-%m-%d'.
+    6. BUSINESS RULE: If 'CostOfGoods' is requested but not in schema, use (0.7 * UnitPrice).
+    7. STRICTLY FORBIDDEN: Do NOT use 'or' as an alias for Orders. Use 'O' or 'T1'.
+    
+    8. PATTERN RECOGNITION - Match query to question type:
+       - If question asks for "average" or "AOV", use AVG() or SUM(...)/COUNT(DISTINCT OrderID)
+       - If question asks for "top customer" or "customer by X", GROUP BY customer (Customers table)
+       - If question asks for "top category" or "category with X", GROUP BY category (Categories table)
+       - If question asks for "top products", GROUP BY product (Products table)
+       - If question asks for "gross margin" or "margin", calculate: Revenue - Cost (not just revenue)
+       - DO NOT default to "top 3 products by revenue" for unrelated questions
+    
+    9. FORMULA VALIDATION:
+       - Revenue formula: SUM(UnitPrice * Quantity * (1 - Discount))
+       - NEVER use: SUM(UnitPrice * Discount) or SUM(Discount * Quantity)
+       - Gross margin: SUM(Revenue - Cost) where Cost = 0.7 * UnitPrice if not available
     """
     question = dspy.InputField(desc="The question to be answered via SQL.")
     schema = dspy.InputField(desc="The SQLite database schema.")
@@ -63,6 +78,8 @@ class SynthesizeAnswer(dspy.Signature):
     sql_results = dspy.InputField(desc="Data returned from the database.")
     feedback = dspy.InputField(desc="Feedback from previous attempts (e.g., format errors).", optional=True)
     final_answer = dspy.OutputField(desc="The comprehensive answer.")
+    confidence = dspy.OutputField(desc="Confidence score between 0.0 and 1.0.")
+    explanation = dspy.OutputField(desc="Brief explanation of how the answer was derived (max 2 sentences).")
     citations = dspy.OutputField(desc="List of document IDs used as sources.")
 
 
@@ -89,11 +106,12 @@ class PlannerModule(dspy.Module):
 class SQLGenerator(dspy.Module):
     def __init__(self):
         super().__init__()
-        # Simplified to dspy.Predict for direct SQL string output
         self.generate = dspy.Predict(NL2SQL)
 
-    def forward(self, question, schema, feedback=None):
-        return self.generate(question=question, schema=schema, feedback=feedback or "")
+    def forward(self, question, schema, feedback=None, **kwargs):
+        if "response_format" not in kwargs:
+            kwargs["response_format"] = {"type": "text"}
+        return self.generate(question=question, schema=schema, feedback=feedback, **kwargs)
 
 
 class Synthesizer(dspy.Module):

@@ -24,6 +24,9 @@ class AgentState(TypedDict):
     errors: List[str]
     feedback: str # New field for repair feedback
     repair_count: int
+    sql_tables: List[str] # Extracted tables for citation
+    confidence: float
+    explanation: str
 
 
 # Node functions
@@ -147,11 +150,10 @@ def sql_gen_node(state: AgentState) -> AgentState:
     
     try:
         # Pass feedback if available (from repair loop)
-        result = generator(question=state['question'], schema=schema, feedback=state.get("feedback"))
+        result = generator(question=state['question'], schema=schema, feedback=state.get("feedback"), response_format={"type": "text"})
         state['sql_query'] = result.sql_query
         
         if state['sql_query']:
-            # Clean the SQL query
             # Clean the SQL query
             clean_query = state['sql_query'].strip()
             
@@ -192,11 +194,31 @@ def sql_gen_node(state: AgentState) -> AgentState:
     return state
 
 def execute_sql_node(state: AgentState) -> AgentState:
-    """Executes the generated SQL query."""
+    """Executes the generated SQL query and extracts table names for citations."""
     print("---EXECUTING SQL---")
     try:
         with SqliteTool() as db:
             state["sql_results"] = db.execute_sql(state["sql_query"])
+        
+        # Extract table names from the SQL query for citations
+        if state.get("sql_query"):
+            # Find table names after FROM and JOIN keywords
+            # Pattern matches: FROM TableName, JOIN TableName, FROM "Table Name"
+            pattern = r'(?:FROM|JOIN)\s+(?:"([^"]+)"|([^\s,]+))'
+            matches = re.findall(pattern, state["sql_query"], re.IGNORECASE)
+            
+            # Extract table names (matches is list of tuples, either quoted or unquoted)
+            table_names = []
+            for quoted, unquoted in matches:
+                table_name = quoted if quoted else unquoted
+                # Remove alias logic is handled by regex for unquoted (stops at space)
+                # For quoted, we want the full name (e.g. "Order Details")
+                if table_name and table_name.upper() not in ['AS', 'ON', 'WHERE']:
+                    table_names.append(table_name)
+            
+            # Store unique table names in state for citation
+            state["sql_tables"] = list(set(table_names))
+            
     except Exception as e:
         print(f"  -> SQL execution error: {e}")
         state["errors"].append(str(e))
@@ -237,7 +259,37 @@ def synthesize_node(state: AgentState) -> AgentState:
         print(f"  -> Synthesizer raw result: {result}")
         
         state["final_answer"] = getattr(result, 'final_answer', "No answer generated.")
-        state["citations"] = getattr(result, 'citations', [])
+        
+        # Extract confidence and explanation
+        try:
+            state["confidence"] = float(getattr(result, 'confidence', 0.0))
+        except (ValueError, TypeError):
+            state["confidence"] = 0.0
+            
+        state["explanation"] = getattr(result, 'explanation', "")
+        
+        # Combine RAG citations with SQL table citations
+        rag_citations = getattr(result, 'citations', [])
+        sql_tables = state.get('sql_tables', [])
+        
+        # Format: [doc citations] + [SQL: table1, table2, ...]
+        all_citations = []
+        
+        # Handle RAG citations (could be string or list)
+        if rag_citations:
+            if isinstance(rag_citations, str):
+                # If it's a string representation of a list, try to clean it
+                cleaned = rag_citations.strip("[]'\" ")
+                if cleaned:
+                    all_citations.append(cleaned)
+            elif isinstance(rag_citations, list):
+                all_citations.extend(rag_citations)
+                
+        if sql_tables:
+            tables_str = f"SQL: {', '.join(sql_tables)}"
+            all_citations.append(tables_str)
+        
+        state["citations"] = all_citations if all_citations else []
         
         print(f"  -> Answer: {str(state['final_answer'])[:100]}...")
     except Exception as e:

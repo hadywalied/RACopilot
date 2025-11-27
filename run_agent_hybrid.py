@@ -24,13 +24,15 @@ def main(batch, out):
         api_base = os.getenv("LLM_API_BASE", "http://127.0.0.1:1234/v1")
         api_key = os.getenv("LLM_API_KEY", "lm-studio")
         model_name = os.getenv("LLM_MODEL_NAME", "devstral-small-2507")
-        
+
         # User's configured Ollama LM
         ollama_model = dspy.LM(
             model_name,
             api_base=api_base,
             api_key=api_key,
-            model_type='text')
+            model_type='chat',
+            response_format={"type": "text"}
+        )
         dspy.configure(lm=ollama_model)
         logging.info(f"DSPy configured with model: {model_name}")
     except Exception as e:
@@ -84,11 +86,12 @@ def main(batch, out):
                     final_state = app.invoke(inputs)
                     
                     output_data = {
-                        "question": question,
+                        "id": data.get("id", "unknown"),
                         "final_answer": final_state.get("final_answer"),
-                        "citations": final_state.get("citations"),
-                        "sql_query": final_state.get("sql_query"),
-                        "route": final_state.get("route")
+                        "sql": final_state.get("sql_query", ""),
+                        "confidence": final_state.get("confidence", 0.0),
+                        "explanation": final_state.get("explanation", ""),
+                        "citations": final_state.get("citations", [])
                     }
                     
                     # Write result immediately
